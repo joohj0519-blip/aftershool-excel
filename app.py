@@ -2028,7 +2028,14 @@ with tab6:
     if not all_data.empty:
         st.subheader("🔍 학생별 통합 검색")
         
-        student_list = all_data.apply(lambda x: f"{x['학년']}-{x['반']}-{x['이름']}", axis=1).unique().tolist()
+        def format_student(x):
+            g = str(x['학년']).replace(".0", "").strip()
+            c = str(x['반']).replace(".0", "").strip()
+            n = str(x.get('번호', '')).replace(".0", "").strip()
+            nm = str(x['이름']).strip()
+            return f"{g}-{c}-{n}-{nm}"
+
+        student_list = all_data.apply(format_student, axis=1).unique().tolist()
         student_list.sort()
         student_list.insert(0, "전체 (선택안함)")
         
@@ -2036,9 +2043,13 @@ with tab6:
         
         if sel_stud != "전체 (선택안함)":
             parts = sel_stud.split("-")
-            gr, cl, nm = parts[0], parts[1], parts[2]
+            gr, cl, num, nm = parts[0], parts[1], parts[2], parts[3]
             
-            stud_data = all_data[(all_data["학년"].astype(str) == gr) & (all_data["반"].astype(str) == cl) & (all_data["이름"].astype(str) == nm)].copy()
+            stud_data = all_data[
+                (all_data["학년"].astype(str).str.replace(".0", "", regex=False).str.strip() == gr) & 
+                (all_data["반"].astype(str).str.replace(".0", "", regex=False).str.strip() == cl) & 
+                (all_data["이름"].astype(str).str.strip() == nm)
+            ].copy()
             stud_data = stud_data.sort_values(by=["월순서", "프로그램명"])
             
             display_cols = ["월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
