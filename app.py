@@ -5,6 +5,7 @@ import calendar
 import json
 import os
 import io
+import zipfile
 from st_click_detector import click_detector
 
 st.set_page_config(page_title="방과후학교 자동 정산 시스템", page_icon="🏫", layout="wide")
@@ -220,6 +221,162 @@ def get_monthly_path(filename):
         os.makedirs(folder)
     return os.path.join(folder, filename)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔄 전입/전출 관리")
+
+with st.sidebar.expander("➕ 전입생 추가", expanded=False):
+    with st.form("transfer_in_form"):
+        ti_grade = st.number_input("학년", min_value=1, max_value=6, value=1)
+        ti_class = st.text_input("반", value="1")
+        ti_num = st.text_input("번호", value="")
+        ti_name = st.text_input("이름", value="")
+        ti_qual = st.selectbox("가구자격", ["수익자", "교육비지원"])
+        
+        progs_for_ti = []
+        if os.path.exists(get_monthly_path("programs.json")):
+            progs_for_ti = pd.DataFrame(load_data(get_monthly_path("programs.json"), []))["프로그램명"].dropna().unique().tolist()
+            
+        ti_progs = st.multiselect("수강 프로그램 선택", progs_for_ti)
+        
+        if st.form_submit_button("전입생 등록"):
+            if ti_name and ti_progs:
+                studs = load_data(get_monthly_path("merged_students.json"), [])
+                new_stud = {
+                    "학년": ti_grade, "반": ti_class, "번호": ti_num, "이름": ti_name,
+                    "자격상세": ti_qual, "가구자격": ti_qual,
+                    "추가지원": "초3이용권" if ti_grade == 3 else "",
+                    "1순위지원금": "교육비대상자" if ti_qual == "교육비지원" else "수익자",
+                    "상태": "재학"
+                }
+                studs.append(new_stud)
+                save_data(get_monthly_path("merged_students.json"), studs)
+                
+                enrols = load_data(get_monthly_path("enrollments.json"), [])
+                for p in ti_progs:
+                    enrols.append({
+                        "학년": ti_grade, "반": ti_class, "번호": ti_num, "이름": ti_name,
+                        "프로그램명": p, "신청여부": "O"
+                    })
+                save_data(get_monthly_path("enrollments.json"), enrols)
+                st.success(f"{ti_name} 전입생 등록 완료!")
+                st.rerun()
+            else:
+                st.warning("이름과 수강 프로그램을 입력해주세요.")
+
+with st.sidebar.expander("➖ 전출생/취소 처리", expanded=False):
+    studs = load_data(get_monthly_path("merged_students.json"), [])
+    if studs:
+        df_stud_side = pd.DataFrame(studs)
+        if "상태" not in df_stud_side.columns:
+            df_stud_side["상태"] = "재학"
+            
+        active_studs = df_stud_side[df_stud_side["상태"] != "전출"]
+        if not active_studs.empty:
+            stud_list = (active_studs["학년"].astype(str) + "-" + active_studs["반"].astype(str) + "-" + active_studs["이름"]).tolist()
+            sel_to_out = st.selectbox("전출 처리할 학생 선택", stud_list)
+            
+            if st.button("선택 학생 전출 처리"):
+                parts = sel_to_out.split("-")
+                gr, cl, nm = parts[0], parts[1], parts[2]
+                
+                for s in studs:
+                    if str(s.get("학년")) == gr and str(s.get("반")) == cl and str(s.get("이름")) == nm:
+                        s["상태"] = "전출"
+                save_data(get_monthly_path("merged_students.json"), studs)
+                st.success(f"{nm} 학생 전출 처리 완료. (정산표에는 유지되므로 환급액을 입력하세요)")
+                st.rerun()
+        else:
+            st.caption("재학 중인 학생이 없습니다.")
+    else:
+        st.caption("먼저 학생 명단을 업로드해주세요.")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📦 자료 다운로드")
+if os.path.exists(get_monthly_path("merged_students.json")):
+    def generate_zip(m):
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            studs = load_data(get_monthly_path("merged_students.json"), [])
+            if studs:
+                zip_file.writestr(f"1_통합학생명단_{m}월.xlsx", to_excel(pd.DataFrame(studs)))
+                
+            insts = load_data(get_monthly_path("instructor_fees.json"), [])
+            if insts:
+                df_inst = pd.DataFrame(insts)
+                zip_file.writestr(f"3_강사료_정산표_{m}월.xlsx", to_excel(df_inst))
+                report_cols = ["프로그램명", "강사명", "강사구분", "총 수강료 수입", "교육비지원대상 총액", "수익자 부담액", "총 강사료(예상)", "강사료 보전금"]
+                df_report = df_inst[[c for c in report_cols if c in df_inst.columns]]
+                zip_file.writestr(f"4_월간_통계보고서_{m}월.xlsx", to_excel(df_report))
+                
+            enrolls = load_data(get_monthly_path("enrollments.json"), [])
+            prog_fees = load_data(get_monthly_path("program_fees.json"), [])
+            refunds = load_data(get_monthly_path("student_refunds.json"), {})
+            retro = load_data(get_monthly_path("retroactive_adjustments.json"), {})
+            
+            if enrolls and studs and prog_fees:
+                df_en = pd.DataFrame(enrolls)
+                df_st = pd.DataFrame(studs)
+                df_pf = pd.DataFrame(prog_fees)
+                
+                if "프로그램명" in df_en.columns:
+                    melted = df_en.copy()
+                elif "프로그램" in df_en.columns:
+                    melted = df_en.rename(columns={"프로그램": "프로그램명"})
+                else:
+                    id_vars = [c for c in df_en.columns if c in ["학년", "반", "번호", "이름"]]
+                    melted = df_en.melt(id_vars=id_vars, var_name="프로그램명", value_name="신청여부")
+                    melted = melted[melted["신청여부"].astype(str).str.upper().isin(["O", "ㅇ", "Y", "1", "동그라미"])]
+                    
+                if not melted.empty:
+                    melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
+                    df_pf["프로그램명"] = df_pf["프로그램명"].astype(str).str.strip()
+                    
+                    merge_keys = [k for k in ["학년", "반", "이름"] if k in df_st.columns and k in melted.columns]
+                    if merge_keys:
+                        df_calc = pd.merge(melted, df_st, on=merge_keys, how="left")
+                    else:
+                        df_calc = melted.copy()
+                        df_calc["가구자격"] = "수익자"
+                        
+                    if "최종 수강료" in df_pf.columns:
+                        df_calc = pd.merge(df_calc, df_pf[["프로그램명", "최종 수강료", "월 재료비"]], on="프로그램명", how="inner")
+                        df_calc["고유ID"] = df_calc["학년"].astype(str) + "-" + df_calc["반"].astype(str) + "-" + df_calc["이름"] + "_" + df_calc["프로그램명"]
+                        
+                        def calc_fees_export(row):
+                            fee = row.get("최종 수강료", 0)
+                            mat = row.get("월 재료비", 0)
+                            if pd.isna(fee): fee = 0
+                            if pd.isna(mat): mat = 0
+                            qual = str(row.get("가구자격", ""))
+                            total = fee + mat
+                            if qual == "교육비지원":
+                                support, charge, mat_charge = total, 0, 0
+                            else:
+                                support, charge, mat_charge = 0, total, mat
+                            uid = row["고유ID"]
+                            r_info = refunds.get(uid, {})
+                            refund_amt = r_info.get("환급액", 0)
+                            retro_info = retro.get(uid, {})
+                            r_add = retro_info.get("추가징수액", 0)
+                            r_sub = retro_info.get("소급환급액", 0)
+                            base_final = max(mat_charge, charge - refund_amt)
+                            final_charge = base_final + r_add - r_sub
+                            return pd.Series([total, support, charge, r_add, r_sub, refund_amt, r_info.get("환급사유", ""), final_charge])
+                            
+                        df_calc[["총 금액", "지원금(면제)", "기본 징수액", "추가징수액", "소급환급액", "환급액", "환급사유", "최종 징수액"]] = df_calc.apply(calc_fees_export, axis=1)
+                        display_cols = ["학년", "반", "이름", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "기본 징수액", "추가징수액", "소급환급액", "환급액", "환급사유", "최종 징수액"]
+                        df_display = df_calc[[c for c in display_cols if c in df_calc.columns]].sort_values(by=["프로그램명", "학년", "반", "이름"])
+                        zip_file.writestr(f"2_수강료_정산표_{m}월.xlsx", to_excel(df_display))
+        return zip_buffer.getvalue()
+
+    st.sidebar.download_button(
+        "📦 이번 달 정산자료 일괄 다운로드(ZIP)", 
+        data=generate_zip(st.session_state.selected_month), 
+        file_name=f"{st.session_state.selected_month}월_정산자료_통합.zip", 
+        mime="application/zip",
+        use_container_width=True
+    )
+
 # 마이그레이션 (기존 루트 파일 이동)
 if not os.path.exists("data"):
     os.makedirs(f"data/{settings['year']}_03", exist_ok=True)
@@ -294,12 +451,13 @@ class CustomHTMLCalendar(calendar.HTMLCalendar):
 st.title("🏫 방과후학교 전용 대시보드")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📅 1. 학사일정 및 설정", 
     "👩‍🎓 2. 기초자료 (학생/프로그램)", 
     "💰 3. 수강료 정산", 
     "👨‍🏫 4. 강사료 정산", 
-    "📈 5. 통계"
+    "📈 5. 통계",
+    "📊 6. 통합 대시보드"
 ])
 
 with tab1:
@@ -553,6 +711,19 @@ with tab2:
                 else:
                     selected_app_sheet = st.selectbox("수강신청 명단 시트 선택", app_sheets, index=0)
                 
+                carry_over_refunds = False
+                months_seq = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2]
+                try:
+                    curr_idx = months_seq.index(st.session_state.selected_month)
+                    if curr_idx > 0:
+                        prev_m = months_seq[curr_idx - 1]
+                        prev_y = settings["year"] if prev_m >= 3 else settings["year"] + 1
+                        prev_folder = f"data/{prev_y}_{prev_m:02d}"
+                        if os.path.exists(os.path.join(prev_folder, "student_refunds.json")):
+                            carry_over_refunds = st.checkbox(f"🔄 이전 달({prev_m}월)의 환급 내역을 당월로 자동 이월(복사)하기", value=True)
+                except ValueError:
+                    pass
+                
                 if st.button("데이터 분석 및 저장", use_container_width=True, type="primary"):
                     with st.spinner("데이터를 분석하고 있습니다..."):
                         # Read data
@@ -587,9 +758,10 @@ with tab2:
                                 return pd.Series(["교육비대상자" if qual == "교육비지원" else "수익자", "", ""])
                                 
                         df_merged[["1순위지원금", "2순위지원금", "3순위지원금"]] = df_merged.apply(assign_priority, axis=1)
+                        df_merged["상태"] = "재학"
                         df_merged = df_merged.sort_values(by=["학년", "반", "번호"])
                         
-                        final_student_cols = ["학년", "반", "번호", "이름", "자격상세", "가구자격", "추가지원", "1순위지원금", "2순위지원금", "3순위지원금"]
+                        final_student_cols = ["학년", "반", "번호", "이름", "자격상세", "가구자격", "추가지원", "1순위지원금", "2순위지원금", "3순위지원금", "상태"]
                         df_merged = df_merged[final_student_cols]
                         
                         # 프로그램 목록 컬럼 필터링
@@ -612,6 +784,17 @@ with tab2:
                         save_data(get_monthly_path("merged_students.json"), df_merged.to_dict(orient="records"))
                         save_data(get_monthly_path("programs.json"), df_programs.to_dict(orient="records"))
                         save_data(get_monthly_path("enrollments.json"), df_enrollments.to_dict(orient="records"))
+                        
+                        if carry_over_refunds:
+                            try:
+                                prev_m = months_seq[months_seq.index(st.session_state.selected_month) - 1]
+                                prev_y = settings["year"] if prev_m >= 3 else settings["year"] + 1
+                                prev_folder = f"data/{prev_y}_{prev_m:02d}"
+                                prev_refunds = load_data(os.path.join(prev_folder, "student_refunds.json"), {})
+                                if prev_refunds:
+                                    save_data(get_monthly_path("student_refunds.json"), prev_refunds)
+                            except:
+                                pass
                         
                         st.success("✅ 파일이 성공적으로 업로드 및 분석되었습니다!")
                         
@@ -770,6 +953,75 @@ with tab2:
             
         st.info("새로운 달의 정산을 하려면 위에 새 파일을 업로드해주세요.")
         
+    st.markdown("---")
+    st.subheader("🔄 학년초 진급(학적 변동) 자동 매칭")
+    st.info("💡 12월 수강신청 명단(과거 학적)을 3월 새 학적으로 원클릭 업데이트하려면 나이스(NEIS) 진급 명단을 업로드하세요.")
+    
+    neis_file = st.file_uploader("나이스 진급 명단 엑셀 업로드", type=["xlsx", "xls"], key="neis_upload")
+    if neis_file is not None:
+        if st.button("진급 학적 자동 업데이트 실행", type="primary"):
+            if not os.path.exists(get_monthly_path("merged_students.json")):
+                st.error("먼저 위의 '기초자료 파일'을 업로드하여 명단을 저장해주세요.")
+            else:
+                try:
+                    df_neis = pd.read_excel(neis_file)
+                    old_new_map = {}
+                    for i, row in df_neis.iterrows():
+                        try:
+                            n_gr = str(row.iloc[0]).replace("학년", "").strip()
+                            n_cl = str(row.iloc[1]).strip()
+                            n_num = str(row.iloc[2]).strip()
+                            name = str(row.iloc[3]).strip()
+                            
+                            o_gr = str(row.iloc[4]).replace("학년", "").strip()
+                            o_cl = str(row.iloc[5]).strip()
+                            o_num = str(row.iloc[6]).strip()
+                            
+                            if name and o_gr and o_cl:
+                                old_new_map[(o_gr, o_cl, name)] = (n_gr, n_cl, n_num)
+                        except:
+                            continue
+                            
+                    studs = load_data(get_monthly_path("merged_students.json"), [])
+                    enrols = load_data(get_monthly_path("enrollments.json"), [])
+                    
+                    matched_count = 0
+                    for s in studs:
+                        k = (str(s.get("학년")), str(s.get("반")), str(s.get("이름")))
+                        if k in old_new_map:
+                            n_g, n_c, n_n = old_new_map[k]
+                            s["학년"] = int(float(n_g)) if n_g.isdigit() else n_g
+                            s["반"] = n_c
+                            s["번호"] = int(float(n_n)) if n_n.isdigit() else n_n
+                            
+                            if s["학년"] == 3:
+                                s["추가지원"] = "초3이용권"
+                                if not s.get("1순위지원금") or s.get("1순위지원금") == "수익자":
+                                    s["1순위지원금"] = "초3이용권"
+                            else:
+                                if s.get("추가지원") == "초3이용권":
+                                    s["추가지원"] = ""
+                                if s.get("1순위지원금") == "초3이용권":
+                                    s["1순위지원금"] = "교육비대상자" if s.get("가구자격") == "교육비지원" else "수익자"
+                                    
+                            matched_count += 1
+                            
+                    for e in enrols:
+                        k = (str(e.get("학년")), str(e.get("반")), str(e.get("이름")))
+                        if k in old_new_map:
+                            n_g, n_c, n_n = old_new_map[k]
+                            e["학년"] = int(float(n_g)) if n_g.isdigit() else n_g
+                            e["반"] = n_c
+                            e["번호"] = int(float(n_n)) if n_n.isdigit() else n_n
+                            
+                    save_data(get_monthly_path("merged_students.json"), studs)
+                    save_data(get_monthly_path("enrollments.json"), enrols)
+                    
+                    st.success(f"✅ 총 {matched_count}명의 학적이 새 학년/반으로 성공적으로 업데이트되었습니다! (초3이용권 자격 자동 갱신 포함)")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"오류가 발생했습니다: {str(e)}")
+
     st.markdown("---")
     st.subheader("📁 이전 통합 자료 백업 목록")
     if os.path.exists("archive"):
@@ -1428,6 +1680,7 @@ with tab5:
                 month_names = [f"{x}월" for x in months_list]
                 
                 fund_categories = {}
+                student_subsidies = {}
                 
                 def add_fund(category, m_name, amount):
                     if category not in fund_categories:
@@ -1507,6 +1760,33 @@ with tab5:
                                     add_fund("교육비지원 (다자녀)", m_name, support)
                                 else:
                                     add_fund(f"교육비지원 ({dtl})", m_name, support)
+
+                                student_key = str(r.get("학년", "")) + "-" + str(r.get("반", "")) + "-" + str(r.get("번호", "")) + "-" + str(r.get("이름", ""))
+                                if student_key not in student_subsidies:
+                                    limit = 0
+                                    for pol in settings.get("support_policies", []):
+                                        if pol.get("자격명") == pri:
+                                            limit = pol.get("한도액", 0)
+                                            break
+                                        elif pol.get("자격명") == dtl:
+                                            limit = max(limit, pol.get("한도액", 0))
+                                    student_subsidies[student_key] = {
+                                        "학생 정보": student_key,
+                                        "이름": str(r.get("이름", "")),
+                                        "자격명": pri if pri and pri != "nan" else dtl,
+                                        "배정된 총 한도액": limit,
+                                        "누적 사용액(전월까지)": 0,
+                                        "당월 추가 사용액": 0
+                                    }
+                                
+                                curr_m_name = f"{st.session_state.selected_month}월"
+                                if m_name == curr_m_name:
+                                    student_subsidies[student_key]["당월 추가 사용액"] += support
+                                else:
+                                    idx_m = months_list.index(m_num)
+                                    idx_curr = months_list.index(st.session_state.selected_month)
+                                    if idx_m < idx_curr:
+                                        student_subsidies[student_key]["누적 사용액(전월까지)"] += support
                 
                 fund_rows = []
                 priority_keys = ["학생 수익자 부담액", "교육비지원 (초3이용권)", "교육비지원 (다자녀)"]
@@ -1549,8 +1829,178 @@ with tab5:
                         st.info("💡 위 통계는 각 재원별(수익자, 지원금, 보전금) 지출 내역을 저장된 모든 월별 데이터를 합산하여 보여줍니다.")
                 else:
                     st.info("💡 집계된 월별 정산 데이터가 없습니다.")
+
+                st.markdown("---")
+                st.subheader("💳 개인별 지원금 사용 현황표")
+                if student_subsidies:
+                    df_subsidy = pd.DataFrame(list(student_subsidies.values()))
+                    df_subsidy["남은 잔여 금액"] = df_subsidy["배정된 총 한도액"] - df_subsidy["누적 사용액(전월까지)"] - df_subsidy["당월 추가 사용액"]
+                    
+                    def highlight_over_limit(row):
+                        color = 'background-color: #fecaca; color: #991b1b; font-weight: bold' if row["남은 잔여 금액"] < 0 else ''
+                        return [color] * len(row)
+                        
+                    format_subs = {c: "{:,.0f} 원" for c in ["배정된 총 한도액", "누적 사용액(전월까지)", "당월 추가 사용액", "남은 잔여 금액"]}
+                    st.dataframe(
+                        df_subsidy.style.apply(highlight_over_limit, axis=1).format(format_subs),
+                        use_container_width=True, hide_index=True
+                    )
+                    st.download_button("📥 개인별 지원금 사용 현황 다운로드", data=to_excel(df_subsidy), file_name="지원금_사용현황.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_stat_subsidy")
+                else:
+                    st.caption("이번 달까지 지원금을 사용한 학생 내역이 없습니다.")
+                    
             except Exception as e:
                 st.error(f"재원별 통계 산출 중 오류가 발생했습니다: {str(e)}")
 
     else:
         st.info("💡 4번 탭에서 [강사료 정산 및 보전금 내역 저장]을 완료해야 통계 보고서를 볼 수 있습니다.")
+
+with tab6:
+    st.header("📊 6. 통합 대시보드 및 학생 검색")
+    st.markdown("전체 월의 정산 내역 및 학생별 히스토리를 확인합니다.")
+    
+    @st.cache_data
+    def load_all_months_data(year):
+        all_calc = []
+        months_seq = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2]
+        for m in months_seq:
+            y = year if m >= 3 else year + 1
+            folder = f"data/{y}_{m:02d}"
+            
+            if not os.path.exists(folder):
+                continue
+                
+            enrolls = load_data(os.path.join(folder, "enrollments.json"), [])
+            prog_fees = load_data(os.path.join(folder, "program_fees.json"), [])
+            studs = load_data(os.path.join(folder, "merged_students.json"), [])
+            refunds = load_data(os.path.join(folder, "student_refunds.json"), {})
+            retro = load_data(os.path.join(folder, "retroactive_adjustments.json"), {})
+            
+            if not enrolls or not studs or not prog_fees:
+                continue
+                
+            df_en = pd.DataFrame(enrolls)
+            df_st = pd.DataFrame(studs)
+            df_pf = pd.DataFrame(prog_fees)
+            
+            if "프로그램명" in df_en.columns:
+                melted = df_en.copy()
+            elif "프로그램" in df_en.columns:
+                melted = df_en.rename(columns={"프로그램": "프로그램명"})
+            else:
+                id_vars = [c for c in df_en.columns if c in ["학년", "반", "번호", "이름"]]
+                melted = df_en.melt(id_vars=id_vars, var_name="프로그램명", value_name="신청여부")
+                melted = melted[melted["신청여부"].astype(str).str.upper().isin(["O", "ㅇ", "Y", "1", "동그라미"])]
+                
+            if melted.empty: continue
+            
+            melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
+            df_pf["프로그램명"] = df_pf["프로그램명"].astype(str).str.strip()
+            
+            merge_keys = [k for k in ["학년", "반", "이름"] if k in df_st.columns and k in melted.columns]
+            if merge_keys:
+                df_calc = pd.merge(melted, df_st, on=merge_keys, how="left")
+            else:
+                df_calc = melted.copy()
+                df_calc["가구자격"] = "수익자"
+                
+            if "최종 수강료" in df_pf.columns:
+                df_calc = pd.merge(df_calc, df_pf[["프로그램명", "최종 수강료", "월 재료비"]], on="프로그램명", how="inner")
+                df_calc["고유ID"] = df_calc["학년"].astype(str) + "-" + df_calc["반"].astype(str) + "-" + df_calc["이름"] + "_" + df_calc["프로그램명"]
+                
+                def calc_fees_export(row):
+                    fee = row.get("최종 수강료", 0)
+                    mat = row.get("월 재료비", 0)
+                    if pd.isna(fee): fee = 0
+                    if pd.isna(mat): mat = 0
+                    qual = str(row.get("가구자격", ""))
+                    total = fee + mat
+                    if qual == "교육비지원":
+                        support, charge, mat_charge = total, 0, 0
+                    else:
+                        support, charge, mat_charge = 0, total, mat
+                    uid = row["고유ID"]
+                    r_info = refunds.get(uid, {})
+                    refund_amt = r_info.get("환급액", 0)
+                    retro_info = retro.get(uid, {})
+                    r_add = retro_info.get("추가징수액", 0)
+                    r_sub = retro_info.get("소급환급액", 0)
+                    base_final = max(mat_charge, charge - refund_amt)
+                    final_charge = base_final + r_add - r_sub
+                    return pd.Series([total, support, charge, r_add, r_sub, refund_amt, r_info.get("환급사유", ""), final_charge])
+                    
+                df_calc[["총 금액", "지원금(면제)", "기본 징수액", "추가징수액", "소급환급액", "환급액", "환급사유", "최종 징수액"]] = df_calc.apply(calc_fees_export, axis=1)
+                df_calc["월"] = f"{m}월"
+                df_calc["월순서"] = months_seq.index(m)
+                
+                all_calc.append(df_calc)
+                
+        if all_calc:
+            return pd.concat(all_calc, ignore_index=True)
+        return pd.DataFrame()
+        
+    all_data = load_all_months_data(settings["year"])
+    
+    if not all_data.empty:
+        st.subheader("🔍 학생별 통합 검색")
+        
+        student_list = all_data.apply(lambda x: f"{x['학년']}-{x['반']}-{x['이름']}", axis=1).unique().tolist()
+        student_list.sort()
+        student_list.insert(0, "전체 (선택안함)")
+        
+        sel_stud = st.selectbox("학생을 선택하세요 (검색 가능)", student_list)
+        
+        if sel_stud != "전체 (선택안함)":
+            parts = sel_stud.split("-")
+            gr, cl, nm = parts[0], parts[1], parts[2]
+            
+            stud_data = all_data[(all_data["학년"].astype(str) == gr) & (all_data["반"].astype(str) == cl) & (all_data["이름"].astype(str) == nm)].copy()
+            stud_data = stud_data.sort_values(by=["월순서", "프로그램명"])
+            
+            display_cols = ["월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
+            df_display = stud_data[display_cols].copy()
+            
+            format_dict = {c: "{:,.0f} 원" for c in ["총 금액", "지원금(면제)", "최종 징수액", "환급액"]}
+            st.dataframe(df_display.style.format(format_dict), use_container_width=True, hide_index=True)
+            
+            col_down1, col_down2 = st.columns([1, 3])
+            with col_down1:
+                st.download_button("📥 학생 히스토리 엑셀 다운로드", data=to_excel(df_display), file_name=f"{sel_stud}_정산히스토리.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_stud_hist")
+            
+            total_charge = stud_data["최종 징수액"].sum()
+            total_refund = stud_data["환급액"].sum()
+            st.info(f"**{sel_stud}** 학생의 누적 최종 징수액: **{total_charge:,.0f}원** (누적 환급액: {total_refund:,.0f}원)")
+        else:
+            st.info("학생을 선택하면 월별 수강 내역 및 정산 히스토리가 표시됩니다.")
+            
+        st.markdown("---")
+        st.subheader("📈 연간 추이 통합 통계")
+        
+        monthly_summary = all_data.groupby("월").agg(
+            수강생연인원=("이름", "count"),
+            총징수액=("최종 징수액", "sum"),
+            총지원금=("지원금(면제)", "sum"),
+            총환급액=("환급액", "sum")
+        ).reset_index()
+        
+        months_seq_str = [f"{m}월" for m in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2]]
+        monthly_summary["월순서"] = monthly_summary["월"].apply(lambda x: months_seq_str.index(x) if x in months_seq_str else 99)
+        monthly_summary = monthly_summary.sort_values("월순서")
+        
+        df_monthly = monthly_summary[["월", "수강생연인원", "총징수액", "총지원금", "총환급액"]]
+        st.dataframe(df_monthly.style.format({
+            "총징수액": "{:,.0f} 원", "총지원금": "{:,.0f} 원", "총환급액": "{:,.0f} 원"
+        }), use_container_width=True, hide_index=True)
+        
+        st.download_button("📥 월별 추이 엑셀 다운로드", data=to_excel(df_monthly), file_name="월별_통합_추이.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_monthly_trend")
+        
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.bar_chart(monthly_summary.set_index("월")["총징수액"])
+            st.caption("월별 총 징수액 추이")
+        with col_c2:
+            st.line_chart(monthly_summary.set_index("월")["수강생연인원"])
+            st.caption("월별 방과후 수강생(연인원) 추이")
+            
+    else:
+        st.warning("등록된 월별 정산 데이터가 없습니다.")
