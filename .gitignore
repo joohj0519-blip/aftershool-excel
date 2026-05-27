@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+
+# Data Files (CRITICAL: Do not upload student data to GitHub!)
+*.xlsx
+*.xls
+*.csv
+*.json
+
+# Specific directories
+data/
+archive/
+기초자료/
+배포용_방과후대시보드/
+
+# Keep requirements.txt and app.py
+!requirements.txt
+!holidays.json
