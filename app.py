@@ -838,6 +838,7 @@ with tab3:
                 "차시당 단가": hourly,
                 "자동 산출 수강료": auto_fee,
                 "최종 수강료": auto_fee,
+                "재료비 차시당 단가": 0,
                 "월 재료비": mat_fee
             })
             
@@ -849,11 +850,22 @@ with tab3:
             for _, srow in df_saved.iterrows():
                 idx = df_fees_base[df_fees_base["프로그램명"] == srow["프로그램명"]].index
                 if not idx.empty:
+                    saved_hourly = srow.get("차시당 단가")
+                    if pd.notna(saved_hourly):
+                        df_fees_base.loc[idx[0], "차시당 단가"] = saved_hourly
+                        session_count = df_fees_base.loc[idx[0], f"{m}월 시수"]
+                        df_fees_base.loc[idx[0], "자동 산출 수강료"] = saved_hourly * session_count
+                        
+                    saved_mat_hourly = srow.get("재료비 차시당 단가")
+                    if pd.notna(saved_mat_hourly):
+                        df_fees_base.loc[idx[0], "재료비 차시당 단가"] = saved_mat_hourly
+                        
                     df_fees_base.loc[idx[0], "최종 수강료"] = srow.get("최종 수강료", df_fees_base.loc[idx[0], "자동 산출 수강료"])
-                    df_fees_base.loc[idx[0], "월 재료비"] = srow.get("월 재료비", 0)
+                    df_fees_base.loc[idx[0], "월 재료비"] = srow.get("월 재료비", df_fees_base.loc[idx[0], "월 재료비"])
         
         st.subheader("📝 프로그램별 수강료/재료비 설정")
-        st.caption("✔️ **표 안의 [최종 수강료]와 [월 재료비] 금액칸을 한 번 클릭 후 숫자를 바로 입력하시거나, 더블클릭하여 수정해 보세요.**")
+        st.caption("✔️ **표 안의 [차시당 단가], [재료비 차시당 단가], [최종 수강료], [월 재료비] 금액칸을 클릭하여 자유롭게 수정해 보세요.**")
+        st.info("💡 단가를 수정하고 '저장' 버튼을 누르면 최종 수강료/월 재료비가 자동으로 산출되어 반영됩니다. (직접 최종 금액을 입력해도 됩니다)")
         edited_fees = st.data_editor(
             df_fees_base,
             column_config={
@@ -862,9 +874,10 @@ with tab3:
                 "수강정원": st.column_config.NumberColumn(disabled=True),
                 "운영요일": st.column_config.TextColumn(disabled=True),
                 f"{m}월 시수": st.column_config.NumberColumn(disabled=True),
-                "차시당 단가": st.column_config.NumberColumn("차시당 단가(원)", disabled=True),
+                "차시당 단가": st.column_config.NumberColumn("차시당 단가(원)", disabled=False),
                 "자동 산출 수강료": st.column_config.NumberColumn("자동 산출 수강료(원)", disabled=True),
                 "최종 수강료": st.column_config.NumberColumn("최종 수강료(원)", disabled=False),
+                "재료비 차시당 단가": st.column_config.NumberColumn("재료비 차시당 단가(원)", disabled=False),
                 "월 재료비": st.column_config.NumberColumn("월 재료비(원)", disabled=False)
             },
             hide_index=True,
@@ -872,6 +885,13 @@ with tab3:
         )
         
         if st.button("✅ 수강료 및 재료비 저장", type="primary"):
+            for i, row in edited_fees.iterrows():
+                base_row = df_fees_base.iloc[i]
+                if row["차시당 단가"] != base_row["차시당 단가"]:
+                    edited_fees.at[i, "최종 수강료"] = row["차시당 단가"] * row[f"{m}월 시수"]
+                if row["재료비 차시당 단가"] != base_row["재료비 차시당 단가"]:
+                    edited_fees.at[i, "월 재료비"] = row["재료비 차시당 단가"] * row[f"{m}월 시수"]
+                    
             save_data(get_monthly_path("program_fees.json"), edited_fees.to_dict(orient="records"))
             st.success("✅ 프로그램별 수강료와 재료비가 저장되었습니다!")
             st.rerun()
