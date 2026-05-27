@@ -1445,6 +1445,8 @@ with tab4:
         refunds_data = load_data(get_monthly_path("student_refunds.json"), {})
         program_incomes = {}
         program_support = {}
+        program_support_g3 = {}
+        program_support_ed = {}
         program_charge = {}
         
         if not df_enroll.empty and not df_prog_fees.empty:
@@ -1490,6 +1492,13 @@ with tab4:
                         
                     actual_charge = max(0, charge - ref_amt)
                     
+                    pri = str(r.get("1순위지원금", ""))
+                    if support > 0:
+                        if pri == "초3이용권":
+                            program_support_g3[p_name] = program_support_g3.get(p_name, 0) + support
+                        else:
+                            program_support_ed[p_name] = program_support_ed.get(p_name, 0) + support
+                            
                     program_support[p_name] = program_support.get(p_name, 0) + support
                     program_charge[p_name] = program_charge.get(p_name, 0) + actual_charge
                     program_incomes[p_name] = program_incomes.get(p_name, 0) + (support + actual_charge)
@@ -1508,6 +1517,8 @@ with tab4:
         df_inst_base["총 강사료(예상)"] = df_inst_base["실제 수업 차시"] * df_inst_base["차시당 단가"]
         
         # 보전금 계산 및 세부 통계
+        df_inst_base["초3이용권 사용액"] = df_inst_base["프로그램명"].map(program_support_g3).fillna(0)
+        df_inst_base["교육비지원 사용액"] = df_inst_base["프로그램명"].map(program_support_ed).fillna(0)
         df_inst_base["교육비지원대상 총액"] = df_inst_base["프로그램명"].map(program_support).fillna(0)
         df_inst_base["수익자 부담액"] = df_inst_base["프로그램명"].map(program_charge).fillna(0)
         df_inst_base["총 수강료 수입"] = df_inst_base["프로그램명"].map(program_incomes).fillna(0)
@@ -1524,6 +1535,8 @@ with tab4:
             f"{m}월 예정 차시": df_inst_base[f"{m}월 예정 차시"].sum(),
             "차시당 단가": None,
             "총 강사료(예상)": df_inst_base["총 강사료(예상)"].sum(),
+            "초3이용권 사용액": df_inst_base["초3이용권 사용액"].sum(),
+            "교육비지원 사용액": df_inst_base["교육비지원 사용액"].sum(),
             "교육비지원대상 총액": df_inst_base["교육비지원대상 총액"].sum(),
             "수익자 부담액": df_inst_base["수익자 부담액"].sum(),
             "총 수강료 수입": df_inst_base["총 수강료 수입"].sum(),
@@ -1623,7 +1636,7 @@ with tab5:
             # Select columns for report
             report_cols = [
                 "프로그램명", "강사명", "강사구분", "총 수강료 수입", 
-                "교육비지원대상 총액", "수익자 부담액", "총 강사료(예상)", "강사료 보전금"
+                "초3이용권 사용액", "교육비지원 사용액", "교육비지원대상 총액", "수익자 부담액", "총 강사료(예상)", "강사료 보전금"
             ]
             df_report = df_stats[[c for c in report_cols if c in df_stats.columns]].copy()
             
@@ -1634,7 +1647,9 @@ with tab5:
                     "강사명": st.column_config.TextColumn("강사명"),
                     "강사구분": st.column_config.TextColumn("강사구분"),
                     "총 수강료 수입": st.column_config.NumberColumn("전체 수강료 수입(원)"),
-                    "교육비지원대상 총액": st.column_config.NumberColumn("교육비지원 총액(원)"),
+                    "초3이용권 사용액": st.column_config.NumberColumn("초3이용권(원)"),
+                    "교육비지원 사용액": st.column_config.NumberColumn("교육비지원(원)"),
+                    "교육비지원대상 총액": st.column_config.NumberColumn("교육비 총액(원)"),
                     "수익자 부담액": st.column_config.NumberColumn("수익자 부담액(원)"),
                     "총 강사료(예상)": st.column_config.NumberColumn("최종 강사료 지출(원)"),
                     "강사료 보전금": st.column_config.NumberColumn("교육청 보전금 사용(원)")
@@ -1793,8 +1808,15 @@ with tab5:
                                         limit1, limit2 = limit2, 0
                                         name1, name2 = name2, ""
                                         
+                                    dtl_origin = str(r.get("자격상세", "")).strip()
+                                    if dtl_origin in ["nan", "None", ""]: dtl_origin = "기타(수익자 등)"
+                                        
                                     student_subsidies[student_key] = {
+                                        "학년": str(r.get("학년", "")),
+                                        "반": str(r.get("반", "")),
+                                        "번호": str(r.get("번호", "")),
                                         "이름": str(r.get("이름", "")),
+                                        "학생 자격(원본)": dtl_origin,
                                         "name1": name1, "limit1": limit1,
                                         "name2": name2, "limit2": limit2,
                                         "total_prev": 0, "total_curr": 0
@@ -1870,8 +1892,12 @@ with tab5:
                         
                         if name1 or limit1 > 0 or used1_prev > 0 or used1_curr > 0:
                             subsidy_rows.append({
+                                "학년": s_info["학년"],
+                                "반": s_info["반"],
+                                "번호": s_info["번호"],
                                 "이름": s_info["이름"],
-                                "자격명": name1 if name1 else "기타지원",
+                                "학생 자격(원본)": s_info["학생 자격(원본)"],
+                                "지원 정책명": name1 if name1 else "기타지원",
                                 "배정된 총 한도액": limit1,
                                 "누적 사용액(전월까지)": used1_prev,
                                 "당월 추가 사용액": used1_curr,
@@ -1880,8 +1906,12 @@ with tab5:
                             
                         if name2 or limit2 > 0 or used2_prev > 0 or used2_curr > 0:
                             subsidy_rows.append({
+                                "학년": s_info["학년"],
+                                "반": s_info["반"],
+                                "번호": s_info["번호"],
                                 "이름": s_info["이름"],
-                                "자격명": name2 if name2 else "초과사용/기타",
+                                "학생 자격(원본)": s_info["학생 자격(원본)"],
+                                "지원 정책명": name2 if name2 else "초과사용/기타",
                                 "배정된 총 한도액": limit2,
                                 "누적 사용액(전월까지)": used2_prev,
                                 "당월 추가 사용액": used2_curr,
