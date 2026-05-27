@@ -96,7 +96,7 @@ def calculate_retroactive_adjustments(current_m, current_y, settings):
         p_prog_fees["프로그램명"] = p_prog_fees["프로그램명"].astype(str).str.strip()
         
         p_calc = pd.merge(melted, p_prog_fees[["프로그램명", "최종 수강료", "월 재료비"]], on="프로그램명", how="inner")
-        merge_keys = [k for k in ["학년", "반", "이름"] if k in p_stud.columns and k in melted.columns]
+        merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in p_stud.columns and k in melted.columns]
         if merge_keys:
             p_calc = pd.merge(p_calc, p_stud, on=merge_keys, how="left")
         else:
@@ -331,7 +331,7 @@ if os.path.exists(get_monthly_path("merged_students.json")):
                     melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
                     df_pf["프로그램명"] = df_pf["프로그램명"].astype(str).str.strip()
                     
-                    merge_keys = [k for k in ["학년", "반", "이름"] if k in df_st.columns and k in melted.columns]
+                    merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_st.columns and k in melted.columns]
                     if merge_keys:
                         df_calc = pd.merge(melted, df_st, on=merge_keys, how="left")
                     else:
@@ -1193,7 +1193,7 @@ with tab3:
                     melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
                     df_prog_fees["프로그램명"] = df_prog_fees["프로그램명"].astype(str).str.strip()
                     
-                    merge_keys = [k for k in ["학년", "반", "이름"] if k in df_stud.columns and k in melted.columns]
+                    merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_stud.columns and k in melted.columns]
                     if merge_keys:
                         df_calc = pd.merge(melted, df_stud, on=merge_keys, how="left")
                     else:
@@ -1466,7 +1466,7 @@ with tab4:
                 df_calc = pd.merge(melted, df_prog_fees[["프로그램명", "최종 수강료"]], on="프로그램명", how="left")
                 
                 df_stud = pd.DataFrame(load_data(get_monthly_path("merged_students.json"), []))
-                merge_keys = [k for k in ["학년", "반", "이름"] if k in df_stud.columns and k in df_calc.columns]
+                merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_stud.columns and k in df_calc.columns]
                 if merge_keys:
                     df_calc = pd.merge(df_calc, df_stud, on=merge_keys, how="left")
                 else:
@@ -1736,7 +1736,7 @@ with tab5:
                         
                         df_calc = pd.merge(melted, df_prog_fees[["프로그램명", "최종 수강료", "월 재료비"]], on="프로그램명", how="inner")
                         
-                        merge_keys = [k for k in ["학년", "반", "이름"] if k in df_stud.columns and k in melted.columns]
+                        merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_stud.columns and k in melted.columns]
                         if merge_keys:
                             df_calc = pd.merge(df_calc, df_stud, on=merge_keys, how="left")
                         else:
@@ -1981,7 +1981,7 @@ with tab6:
             melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
             df_pf["프로그램명"] = df_pf["프로그램명"].astype(str).str.strip()
             
-            merge_keys = [k for k in ["학년", "반", "이름"] if k in df_st.columns and k in melted.columns]
+            merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_st.columns and k in melted.columns]
             if merge_keys:
                 df_calc = pd.merge(melted, df_st, on=merge_keys, how="left")
             else:
@@ -2032,6 +2032,7 @@ with tab6:
             g = str(x['학년']).replace(".0", "").strip()
             c = str(x['반']).replace(".0", "").strip()
             n = str(x.get('번호', '')).replace(".0", "").strip()
+            if n.lower() in ["nan", "none", ""]: n = " "
             nm = str(x['이름']).strip()
             return f"{g}-{c}-{n}-{nm}"
 
