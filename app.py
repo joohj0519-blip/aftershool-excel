@@ -318,9 +318,14 @@ with tab1:
 
             with scol2:
                 st.subheader("💰 단가 및 개설 기준")
-                new_ext_fee = st.number_input("외부강사 단가(차시당)", value=settings["ext_instructor_fee"], step=1000)
-                new_int_fee = st.number_input("내부강사 단가(차시당)", value=settings["int_instructor_fee"], step=1000)
-                new_min_st = st.number_input("최소 개설 인원", value=settings["min_students"], step=1)
+                new_ext_fee = st.number_input("외부강사 단가(차시당)", value=settings.get("ext_instructor_fee", 40000), step=1000)
+                new_int_fee = st.number_input("내부강사 단가(차시당)", value=settings.get("int_instructor_fee", 33000), step=1000)
+                new_min_st = st.number_input("최소 개설 인원", value=settings.get("min_students", 7), step=1)
+                st.markdown("---")
+                st.caption("기본 수강료 단가 (수강정원별)")
+                new_t10 = st.number_input("10명 이하 (원)", value=settings.get("tuition_10", 3300), step=100)
+                new_t15 = st.number_input("11~15명 (원)", value=settings.get("tuition_15", 2200), step=100)
+                new_t20 = st.number_input("16명 이상 (원)", value=settings.get("tuition_20", 1650), step=100)
 
             with scol3:
                 st.subheader("🎓 지원자격 및 우선순위")
@@ -348,6 +353,7 @@ with tab1:
                     "school_name": new_school, "year": new_year, "region": new_region,
                     "ext_instructor_fee": new_ext_fee, "int_instructor_fee": new_int_fee,
                     "min_students": new_min_st,
+                    "tuition_10": new_t10, "tuition_15": new_t15, "tuition_20": new_t20,
                     "support_policies": new_policies
                 })
                 save_data(SETTINGS_FILE, settings)
@@ -801,12 +807,28 @@ with tab3:
             except:
                 cap = 20
                 
-            if cap <= 10:
-                hourly = 3300
-            elif cap <= 15:
-                hourly = 2200
+            excel_hourly_str = str(row.get("차시당단가", row.get("차시당 단가", ""))).strip()
+            if excel_hourly_str and excel_hourly_str.lower() not in ['nan', 'none']:
+                if "무료" in excel_hourly_str:
+                    hourly = 0
+                else:
+                    digits = "".join(filter(str.isdigit, excel_hourly_str))
+                    if digits:
+                        hourly = int(digits)
+                    else:
+                        if cap <= 10:
+                            hourly = settings.get("tuition_10", 3300)
+                        elif cap <= 15:
+                            hourly = settings.get("tuition_15", 2200)
+                        else:
+                            hourly = settings.get("tuition_20", 1650)
             else:
-                hourly = 1650
+                if cap <= 10:
+                    hourly = settings.get("tuition_10", 3300)
+                elif cap <= 15:
+                    hourly = settings.get("tuition_15", 2200)
+                else:
+                    hourly = settings.get("tuition_20", 1650)
                 
             days_str = str(row.get("운영요일", ""))
             days_list = [d.strip() for d in days_str.split(",") if d.strip()]
