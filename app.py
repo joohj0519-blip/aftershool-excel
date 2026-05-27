@@ -1763,30 +1763,51 @@ with tab5:
 
                                 student_key = str(r.get("학년", "")) + "-" + str(r.get("반", "")) + "-" + str(r.get("번호", "")) + "-" + str(r.get("이름", ""))
                                 if student_key not in student_subsidies:
-                                    limit = 0
+                                    pri1 = str(r.get("1순위지원금", "")).strip()
+                                    pri2 = str(r.get("2순위지원금", "")).strip()
+                                    
+                                    limit1, limit2 = 0, 0
+                                    name1, name2 = pri1, pri2
+                                    
                                     for pol in settings.get("support_policies", []):
-                                        if pol.get("자격명") == pri:
-                                            limit = pol.get("한도액", 0)
-                                            break
-                                        elif pol.get("자격명") == dtl:
-                                            limit = max(limit, pol.get("한도액", 0))
+                                        pol_name = pol.get("자격명", "").strip()
+                                        pol_limit = pol.get("한도액", 0)
+                                        if pol_name == pri1 or (pri1 == "교육비대상자" and ("자유수강권" in pol_name or "교육비" in pol_name)):
+                                            limit1 = pol_limit
+                                            name1 = pol_name
+                                        if pol_name == pri2 or (pri2 == "교육비대상자" and ("자유수강권" in pol_name or "교육비" in pol_name)):
+                                            limit2 = pol_limit
+                                            name2 = pol_name
+                                            
+                                    if limit1 == 0 and limit2 == 0 and dtl:
+                                        for pol in settings.get("support_policies", []):
+                                            if pol.get("자격명") == dtl:
+                                                limit1 = pol.get("한도액", 0)
+                                                name1 = dtl
+                                                break
+                                                
+                                    if name1 in ["수익자", "", "nan", "None"]: name1 = ""
+                                    if name2 in ["수익자", "", "nan", "None"]: name2 = ""
+                                    
+                                    if limit1 == 0 and limit2 > 0:
+                                        limit1, limit2 = limit2, 0
+                                        name1, name2 = name2, ""
+                                        
                                     student_subsidies[student_key] = {
-                                        "학생 정보": student_key,
                                         "이름": str(r.get("이름", "")),
-                                        "자격명": pri if pri and pri != "nan" else dtl,
-                                        "배정된 총 한도액": limit,
-                                        "누적 사용액(전월까지)": 0,
-                                        "당월 추가 사용액": 0
+                                        "name1": name1, "limit1": limit1,
+                                        "name2": name2, "limit2": limit2,
+                                        "total_prev": 0, "total_curr": 0
                                     }
                                 
                                 curr_m_name = f"{st.session_state.selected_month}월"
                                 if m_name == curr_m_name:
-                                    student_subsidies[student_key]["당월 추가 사용액"] += support
+                                    student_subsidies[student_key]["total_curr"] += support
                                 else:
                                     idx_m = months_list.index(m_num)
                                     idx_curr = months_list.index(st.session_state.selected_month)
                                     if idx_m < idx_curr:
-                                        student_subsidies[student_key]["누적 사용액(전월까지)"] += support
+                                        student_subsidies[student_key]["total_prev"] += support
                 
                 fund_rows = []
                 priority_keys = ["학생 수익자 부담액", "교육비지원 (초3이용권)", "교육비지원 (다자녀)"]
@@ -1833,8 +1854,41 @@ with tab5:
                 st.markdown("---")
                 st.subheader("💳 개인별 지원금 사용 현황표")
                 if student_subsidies:
-                    df_subsidy = pd.DataFrame(list(student_subsidies.values()))
-                    df_subsidy["남은 잔여 금액"] = df_subsidy["배정된 총 한도액"] - df_subsidy["누적 사용액(전월까지)"] - df_subsidy["당월 추가 사용액"]
+                    subsidy_rows = []
+                    for s_info in student_subsidies.values():
+                        name1 = s_info["name1"]
+                        limit1 = s_info["limit1"]
+                        name2 = s_info["name2"]
+                        limit2 = s_info["limit2"]
+                        total_prev = s_info["total_prev"]
+                        total_curr = s_info["total_curr"]
+                        
+                        used1_prev = min(total_prev, limit1) if limit1 > 0 else total_prev
+                        used1_curr = min(total_curr, max(0, limit1 - used1_prev)) if limit1 > 0 else total_curr
+                        used2_prev = max(0, total_prev - used1_prev)
+                        used2_curr = max(0, total_curr - used1_curr)
+                        
+                        if name1 or limit1 > 0 or used1_prev > 0 or used1_curr > 0:
+                            subsidy_rows.append({
+                                "이름": s_info["이름"],
+                                "자격명": name1 if name1 else "기타지원",
+                                "배정된 총 한도액": limit1,
+                                "누적 사용액(전월까지)": used1_prev,
+                                "당월 추가 사용액": used1_curr,
+                                "남은 잔여 금액": limit1 - used1_prev - used1_curr
+                            })
+                            
+                        if name2 or limit2 > 0 or used2_prev > 0 or used2_curr > 0:
+                            subsidy_rows.append({
+                                "이름": s_info["이름"],
+                                "자격명": name2 if name2 else "초과사용/기타",
+                                "배정된 총 한도액": limit2,
+                                "누적 사용액(전월까지)": used2_prev,
+                                "당월 추가 사용액": used2_curr,
+                                "남은 잔여 금액": limit2 - used2_prev - used2_curr
+                            })
+
+                    df_subsidy = pd.DataFrame(subsidy_rows)
                     
                     def highlight_over_limit(row):
                         color = 'background-color: #fecaca; color: #991b1b; font-weight: bold' if row["남은 잔여 금액"] < 0 else ''
