@@ -807,21 +807,15 @@ with tab3:
             except:
                 cap = 20
                 
-            excel_hourly_str = str(row.get("차시당단가", row.get("차시당 단가", ""))).strip()
-            if excel_hourly_str and excel_hourly_str.lower() not in ['nan', 'none']:
-                if "무료" in excel_hourly_str:
-                    hourly = 0
-                else:
-                    digits = "".join(filter(str.isdigit, excel_hourly_str))
-                    if digits:
-                        hourly = int(digits)
-                    else:
-                        if cap <= 10:
-                            hourly = settings.get("tuition_10", 3300)
-                        elif cap <= 15:
-                            hourly = settings.get("tuition_15", 2200)
-                        else:
-                            hourly = settings.get("tuition_20", 1650)
+            is_free = False
+            for col in ["최종 수강료", "수강료", "비고", "프로그램명", "차시당단가", "차시당 단가"]:
+                val = str(row.get(col, "")).strip().replace(" ", "")
+                if "무료" in val:
+                    is_free = True
+                    break
+                    
+            if is_free:
+                hourly = 0
             else:
                 if cap <= 10:
                     hourly = settings.get("tuition_10", 3300)
