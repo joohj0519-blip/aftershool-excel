@@ -1990,6 +1990,9 @@ with tab6:
                 df_calc = melted.copy()
                 df_calc["가구자격"] = "수익자"
                 
+            if "자격상세" not in df_calc.columns:
+                df_calc["자격상세"] = df_calc.get("가구자격", "수익자")
+                
             if "최종 수강료" in df_pf.columns:
                 df_calc = pd.merge(df_calc, df_pf[["프로그램명", "최종 수강료", "월 재료비"]], on="프로그램명", how="inner")
                 df_calc["고유ID"] = df_calc["학년"].astype(str) + "-" + df_calc["반"].astype(str) + "-" + df_calc["이름"] + "_" + df_calc["프로그램명"]
@@ -2106,11 +2109,12 @@ with tab6:
             stud_data = stud_data.sort_values(by=["학년", "반", "이름", "월순서", "프로그램명"])
             
             if sel_stud != "전체 (선택안함)":
-                display_cols = ["월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
+                display_cols = ["월", "프로그램명", "자격상세", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
             else:
-                display_cols = ["학년", "반", "번호", "이름", "월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
+                display_cols = ["학년", "반", "번호", "이름", "월", "프로그램명", "자격상세", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
             
             df_display = stud_data[[c for c in display_cols if c in stud_data.columns]].copy()
+            df_display = df_display.rename(columns={"자격상세": "가구자격"})
             
             format_dict = {c: "{:,.0f} 원" for c in ["총 금액", "지원금(면제)", "최종 징수액", "환급액"] if c in df_display.columns}
             st.dataframe(df_display.style.format(format_dict), use_container_width=True, hide_index=True)
