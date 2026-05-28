@@ -2082,32 +2082,51 @@ with tab6:
         
         sel_stud = st.selectbox("학생을 선택하세요 (검색 가능)", student_list)
         
+        is_filtered = (sel_gr != "전체") or (sel_cl != "전체") or (sel_num != "전체") or (sel_nm != "전체")
+        
         if sel_stud != "전체 (선택안함)":
             parts = sel_stud.split("-")
             gr, cl, num, nm = parts[0], parts[1], parts[2], parts[3]
             
-            stud_data = all_data[
-                (all_data["학년"].astype(str).str.replace(".0", "", regex=False).str.strip() == gr) & 
-                (all_data["반"].astype(str).str.replace(".0", "", regex=False).str.strip() == cl) & 
-                (all_data["이름"].astype(str).str.strip() == nm)
+            stud_data = filtered_data[
+                (filtered_data["_gr_str"] == gr) & 
+                (filtered_data["_cl_str"] == cl) & 
+                (filtered_data["_nm_str"] == nm)
             ].copy()
-            stud_data = stud_data.sort_values(by=["월순서", "프로그램명"])
+            info_text = f"**{sel_stud}** 학생"
+            file_prefix = f"{sel_stud}"
+        elif is_filtered:
+            stud_data = filtered_data.copy()
+            info_text = "**필터링된** 학생들"
+            file_prefix = "필터링된_학생들"
+        else:
+            stud_data = pd.DataFrame()
             
-            display_cols = ["월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
-            df_display = stud_data[display_cols].copy()
+        if not stud_data.empty:
+            stud_data = stud_data.sort_values(by=["학년", "반", "이름", "월순서", "프로그램명"])
             
-            format_dict = {c: "{:,.0f} 원" for c in ["총 금액", "지원금(면제)", "최종 징수액", "환급액"]}
+            if sel_stud != "전체 (선택안함)":
+                display_cols = ["월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
+            else:
+                display_cols = ["학년", "반", "번호", "이름", "월", "프로그램명", "가구자격", "총 금액", "지원금(면제)", "최종 징수액", "환급액", "환급사유"]
+            
+            df_display = stud_data[[c for c in display_cols if c in stud_data.columns]].copy()
+            
+            format_dict = {c: "{:,.0f} 원" for c in ["총 금액", "지원금(면제)", "최종 징수액", "환급액"] if c in df_display.columns}
             st.dataframe(df_display.style.format(format_dict), use_container_width=True, hide_index=True)
             
             col_down1, col_down2 = st.columns([1, 3])
             with col_down1:
-                st.download_button("📥 학생 히스토리 엑셀 다운로드", data=to_excel(df_display), file_name=f"{sel_stud}_정산히스토리.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_stud_hist")
+                st.download_button("📥 내역 엑셀 다운로드", data=to_excel(df_display), file_name=f"{file_prefix}_정산히스토리.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_stud_hist")
             
             total_charge = stud_data["최종 징수액"].sum()
             total_refund = stud_data["환급액"].sum()
-            st.info(f"**{sel_stud}** 학생의 누적 최종 징수액: **{total_charge:,.0f}원** (누적 환급액: {total_refund:,.0f}원)")
+            st.info(f"{info_text}의 누적 최종 징수액 합계: **{total_charge:,.0f}원** (누적 환급액: {total_refund:,.0f}원)")
         else:
-            st.info("학생을 선택하면 월별 수강 내역 및 정산 히스토리가 표시됩니다.")
+            if is_filtered:
+                st.warning("해당 조건에 맞는 학생/수강 내역이 없습니다.")
+            else:
+                st.info("필터를 적용하거나 학생을 선택하면 월별 수강 내역 및 정산 히스토리가 표시됩니다.")
             
         st.markdown("---")
         st.subheader("📈 연간 추이 통합 통계")
