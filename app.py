@@ -696,6 +696,22 @@ with tab2:
     
     uploaded_file = st.file_uploader("엑셀 파일 선택", type=["xlsx", "xls"])
     
+    # 데이터 초기화(삭제) 버튼 추가
+    has_data = os.path.exists(get_monthly_path("enrollments.json")) or os.path.exists(get_monthly_path("programs.json"))
+    if has_data:
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_empty, col_del = st.columns([3, 1])
+        with col_del:
+            if st.button("🗑️ 현재 월 데이터 삭제", help="업로드된 모든 데이터를 지우고 빈 상태로 되돌립니다."):
+                for fname in ["merged_students.json", "programs.json", "enrollments.json", "instructor_fees.json", "student_refunds.json", "retroactive_adjustments.json", "program_fees.json"]:
+                    path = get_monthly_path(fname)
+                    if os.path.exists(path):
+                        os.remove(path)
+                st.success(f"✅ {st.session_state.selected_month}월 데이터가 모두 삭제되었습니다!")
+                st.rerun()
+                
+    st.markdown("---")
+    
     if uploaded_file is not None:
         try:
             xls = pd.ExcelFile(uploaded_file)
