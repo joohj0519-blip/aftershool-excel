@@ -2149,13 +2149,5 @@ with tab6:
         
         st.download_button("📥 월별 추이 엑셀 다운로드", data=to_excel(df_monthly), file_name="월별_통합_추이.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_monthly_trend")
         
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            st.bar_chart(monthly_summary.set_index("월")["총징수액"])
-            st.caption("월별 총 징수액 추이")
-        with col_c2:
-            st.line_chart(monthly_summary.set_index("월")["수강생연인원"])
-            st.caption("월별 방과후 수강생(연인원) 추이")
-            
     else:
         st.warning("등록된 월별 정산 데이터가 없습니다.")
