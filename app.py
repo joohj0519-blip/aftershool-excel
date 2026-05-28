@@ -2040,8 +2040,10 @@ with tab6:
 
         all_data["_gr_str"] = all_data["학년"].astype(str).str.replace(".0", "", regex=False).str.strip()
         all_data["_cl_str"] = all_data["반"].astype(str).str.replace(".0", "", regex=False).str.strip()
+        all_data["_num_str"] = all_data["번호"].astype(str).str.replace(".0", "", regex=False).str.strip() if "번호" in all_data.columns else ""
+        all_data["_nm_str"] = all_data["이름"].astype(str).str.strip()
         
-        f_col1, f_col2 = st.columns(2)
+        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         grades = ["전체"] + sorted([g for g in all_data["_gr_str"].unique() if g and g.lower() != "nan"])
         with f_col1:
             sel_gr = st.selectbox("학년 필터", grades, key="tab6_gr")
@@ -2056,6 +2058,20 @@ with tab6:
             
         if sel_cl != "전체":
             filtered_data = filtered_data[filtered_data["_cl_str"] == sel_cl]
+            
+        nums = ["전체"] + sorted([n for n in filtered_data["_num_str"].unique() if n and n.lower() != "nan"])
+        with f_col3:
+            sel_num = st.selectbox("번호 필터", nums, key="tab6_num")
+            
+        if sel_num != "전체":
+            filtered_data = filtered_data[filtered_data["_num_str"] == sel_num]
+            
+        names = ["전체"] + sorted([nm for nm in filtered_data["_nm_str"].unique() if nm and nm.lower() != "nan"])
+        with f_col4:
+            sel_nm = st.selectbox("이름 필터", names, key="tab6_nm")
+            
+        if sel_nm != "전체":
+            filtered_data = filtered_data[filtered_data["_nm_str"] == sel_nm]
 
         if filtered_data.empty:
             student_list = ["전체 (선택안함)"]
