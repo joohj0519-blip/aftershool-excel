@@ -453,13 +453,13 @@ class CustomHTMLCalendar(calendar.HTMLCalendar):
 st.title("🏫 방과후학교 전용 대시보드")
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab6, tab5 = st.tabs([
     "📅 1. 학사일정 및 설정", 
     "👩‍🎓 2. 기초자료 (학생/프로그램)", 
     "💰 3. 수강료 정산", 
     "👨‍🏫 4. 강사료 정산", 
-    "📈 5. 통계",
-    "📊 6. 통합 대시보드"
+    "📊 5. 학생별 지원금통계",
+    "📈 6. 통계"
 ])
 
 with tab1:
