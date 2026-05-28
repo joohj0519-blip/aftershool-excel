@@ -270,20 +270,22 @@ with st.sidebar.expander("➖ 전출생/취소 처리", expanded=False):
         if "상태" not in df_stud_side.columns:
             df_stud_side["상태"] = "재학"
             
-        active_studs = df_stud_side[df_stud_side["상태"] != "전출"]
+        active_studs = df_stud_side[~df_stud_side["상태"].isin(["전출", "수강취소"])]
         if not active_studs.empty:
             stud_list = (active_studs["학년"].astype(str) + "-" + active_studs["반"].astype(str) + "-" + active_studs["이름"]).tolist()
-            sel_to_out = st.selectbox("전출 처리할 학생 선택", stud_list)
+            sel_to_out = st.selectbox("전출/취소 처리할 학생 선택", stud_list)
             
-            if st.button("선택 학생 전출 처리"):
+            action_type = st.radio("처리 구분", ["전출", "수강취소"], horizontal=True)
+            
+            if st.button("선택 학생 처리"):
                 parts = sel_to_out.split("-")
                 gr, cl, nm = parts[0], parts[1], parts[2]
                 
                 for s in studs:
                     if str(s.get("학년")) == gr and str(s.get("반")) == cl and str(s.get("이름")) == nm:
-                        s["상태"] = "전출"
+                        s["상태"] = action_type
                 save_data(get_monthly_path("merged_students.json"), studs)
-                st.success(f"{nm} 학생 전출 처리 완료. (정산표에는 유지되므로 환급액을 입력하세요)")
+                st.success(f"{nm} 학생 {action_type} 처리 완료. (정산표에는 유지되므로 환급액을 입력하세요)")
                 st.rerun()
         else:
             st.caption("재학 중인 학생이 없습니다.")
@@ -2036,9 +2038,31 @@ with tab6:
             nm = str(x['이름']).strip()
             return f"{g}-{c}-{n}-{nm}"
 
-        student_list = all_data.apply(format_student, axis=1).unique().tolist()
-        student_list.sort()
-        student_list.insert(0, "전체 (선택안함)")
+        all_data["_gr_str"] = all_data["학년"].astype(str).str.replace(".0", "", regex=False).str.strip()
+        all_data["_cl_str"] = all_data["반"].astype(str).str.replace(".0", "", regex=False).str.strip()
+        
+        f_col1, f_col2 = st.columns(2)
+        grades = ["전체"] + sorted([g for g in all_data["_gr_str"].unique() if g and g.lower() != "nan"])
+        with f_col1:
+            sel_gr = st.selectbox("학년 필터", grades, key="tab6_gr")
+            
+        filtered_data = all_data.copy()
+        if sel_gr != "전체":
+            filtered_data = filtered_data[filtered_data["_gr_str"] == sel_gr]
+            
+        classes = ["전체"] + sorted([c for c in filtered_data["_cl_str"].unique() if c and c.lower() != "nan"])
+        with f_col2:
+            sel_cl = st.selectbox("반 필터", classes, key="tab6_cl")
+            
+        if sel_cl != "전체":
+            filtered_data = filtered_data[filtered_data["_cl_str"] == sel_cl]
+
+        if filtered_data.empty:
+            student_list = ["전체 (선택안함)"]
+        else:
+            student_list = filtered_data.apply(format_student, axis=1).unique().tolist()
+            student_list.sort()
+            student_list.insert(0, "전체 (선택안함)")
         
         sel_stud = st.selectbox("학생을 선택하세요 (검색 가능)", student_list)
         
