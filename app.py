@@ -317,7 +317,7 @@ if os.path.exists(get_monthly_path("merged_students.json")):
             
             if enrolls and studs and prog_fees:
                 df_en = pd.DataFrame(enrolls)
-                df_st = pd.DataFrame(studs)
+                df_st = pd.DataFrame(studs).drop_duplicates(subset=["학년", "반", "이름"])
                 df_pf = pd.DataFrame(prog_fees)
                 
                 if "프로그램명" in df_en.columns:
@@ -328,6 +328,8 @@ if os.path.exists(get_monthly_path("merged_students.json")):
                     id_vars = [c for c in df_en.columns if c in ["학년", "반", "번호", "이름"]]
                     melted = df_en.melt(id_vars=id_vars, var_name="프로그램명", value_name="신청여부")
                     melted = melted[melted["신청여부"].astype(str).str.upper().isin(["O", "ㅇ", "Y", "1", "동그라미"])]
+                
+                melted = melted.drop_duplicates(subset=["학년", "반", "이름", "프로그램명"])
                     
                 if not melted.empty:
                     melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
@@ -729,8 +731,8 @@ with tab2:
                 if st.button("데이터 분석 및 저장", use_container_width=True, type="primary"):
                     with st.spinner("데이터를 분석하고 있습니다..."):
                         # Read data
-                        df_all_students = pd.read_excel(uploaded_file, sheet_name="전체학생명단", skiprows=1).dropna(how='all').fillna("")
-                        df_students = pd.read_excel(uploaded_file, sheet_name="학생지원자격", skiprows=1).dropna(how='all').fillna("")
+                        df_all_students = pd.read_excel(uploaded_file, sheet_name="전체학생명단", skiprows=1).dropna(how='all').fillna("").drop_duplicates(subset=["학년", "반", "이름"])
+                        df_students = pd.read_excel(uploaded_file, sheet_name="학생지원자격", skiprows=1).dropna(how='all').fillna("").drop_duplicates(subset=["학년", "반", "이름"])
                         df_programs = pd.read_excel(uploaded_file, sheet_name="전체프로그램", skiprows=1).dropna(how='all').fillna("")
                         df_enrollments = pd.read_excel(uploaded_file, sheet_name=selected_app_sheet, skiprows=1).dropna(how='all').fillna("")
                         
@@ -1191,6 +1193,10 @@ with tab3:
                 
                 # 학생 통합정보와 병합 (자격상세, 가구자격 가져오기)
                 if not melted.empty:
+                    # 중복 데이터 제거 (엑셀 업로드 시 오타로 인한 복제 방지)
+                    melted = melted.drop_duplicates(subset=["학년", "반", "이름", "프로그램명"])
+                    df_stud = df_stud.drop_duplicates(subset=["학년", "반", "이름"])
+                    
                     # 공백 제거
                     melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
                     df_prog_fees["프로그램명"] = df_prog_fees["프로그램명"].astype(str).str.strip()
@@ -1463,11 +1469,15 @@ with tab4:
                 melted = melted[melted["신청여부"].astype(str).str.upper().isin(["O", "ㅇ", "Y", "1", "동그라미"])]
             
             if not melted.empty:
+                melted = melted.drop_duplicates(subset=["학년", "반", "이름", "프로그램명"])
+                
                 melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
                 df_prog_fees["프로그램명"] = df_prog_fees["프로그램명"].astype(str).str.strip()
                 df_calc = pd.merge(melted, df_prog_fees[["프로그램명", "최종 수강료"]], on="프로그램명", how="left")
                 
                 df_stud = pd.DataFrame(load_data(get_monthly_path("merged_students.json"), []))
+                if not df_stud.empty:
+                    df_stud = df_stud.drop_duplicates(subset=["학년", "반", "이름"])
                 merge_keys = [k for k in ["학년", "반", "번호", "이름"] if k in df_stud.columns and k in df_calc.columns]
                 if merge_keys:
                     df_calc = pd.merge(df_calc, df_stud, on=merge_keys, how="left")
@@ -1979,6 +1989,9 @@ with tab6:
                 melted = melted[melted["신청여부"].astype(str).str.upper().isin(["O", "ㅇ", "Y", "1", "동그라미"])]
                 
             if melted.empty: continue
+            
+            melted = melted.drop_duplicates(subset=["학년", "반", "이름", "프로그램명"])
+            df_st = df_st.drop_duplicates(subset=["학년", "반", "이름"])
             
             melted["프로그램명"] = melted["프로그램명"].astype(str).str.strip()
             df_pf["프로그램명"] = df_pf["프로그램명"].astype(str).str.strip()
